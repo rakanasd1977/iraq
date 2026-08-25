@@ -1,0 +1,39 @@
+{
+  "name": "rafidain-market-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "الواجهة الخلفية لمنصة سوق الرافدين",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "migrate": "tsx src/db/migrate.ts",
+    "seed": "tsx src/db/seed.ts",
+    "restore": "tsx scripts/restore.ts",
+    "test": "node --import tsx --test test/*.test.js",
+    "verify:tests": "node scripts/verify-tests.mjs",
+    "verify:docs": "node scripts/check-doc-counts.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@types/multer": "^2.2.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "csv-parser": "^3.2.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.2.0",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^26.2.0",
+    "@types/web-push": "^3.6.4",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  }
+}
