@@ -1,0 +1,1 @@
+import{j as r}from"./index-28f_GmMZ.js";import t from"./Catalog-CRl_R0XZ.js";import"./Promotions-B2cp87D-.js";import"./ImageUpload-DQHEjQqn.js";function s(){return r.jsx(t,{offersOnly:!0})}export{s as default};
