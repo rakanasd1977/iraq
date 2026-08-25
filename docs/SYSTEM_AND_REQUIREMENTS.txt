@@ -1,0 +1,237 @@
+﻿==================================================================
+سوق الرافدين — توثيق النظام والمتطلبات
+(Rafidain Market — System & Requirements)
+==================================================================
+
+--------------------------------------------------------
+1) نظرة عامة على المنصة
+--------------------------------------------------------
+منصة سوق إلكتروني عراقي مستوحاة من سوق علي بابا الصيني، تعمل في
+18 محافظة عراقية بشكل منفصل، وتضم 5 خدمات تعمل عبر مزودي الخدمة فقط:
+
+  #   الخدمة            الوصف
+  -   --------          -----------------------------------
+  1   المتاجر (store)      متاجر متعددة لبيع المنتجات والبضائع
+  2   المطاعم (restaurant)  مطاعم لطلب الوجبات والطعام
+  3   الفنادق (hotel)       فنادق لحجز الغرف والإقامة
+  4   حجز الطيران (flights) تذاكر الطيران المحلي والدولي
+  5   مكاتب السفر (travel_offices) رحلات وباقات سياحية
+
+نموذج العمل:
+- المنصة وسيط فقط بين الزبون ومزود الخدمة مقابل نسبة عمولة (منصة + وكيل).
+- لا توفر المنصة خدمة التوصيل ولا تتبع الطلبات — التوصيل والتتبع مسؤولية المزود بالكامل.
+- كل محافظة لها وكيل واحد يدير جميع مزوديها دون غيرها.
+- الوكيل يجدد إجارة الوكالة السنوية بمبلغ يحدده المسؤول لكل محافظة.
+- توزيع العمولات على الطلب: عمولة المنصة + عمولة الوكيل تُخصمان، ويستلم المزود الباقي.
+
+--------------------------------------------------------
+2) الأدوار والصلاحيات
+--------------------------------------------------------
+  admin    مسؤول المنصة        لوحة admin-panel (5175) — كل شيء، كل المحافظات
+  agent    وكيل المحافظة       لوحة agent-panel (5174) — محافظته فقط
+  provider مزود الخدمة          لوحة provider-panel (5176) — نشاطه فقط، ولوحته
+                                 حسب نوع خدمته (5 لوحات في تطبيق واحد)
+  customer زبون                واجهة customer-mobile (5173) — تصفح وطلبات
+
+قيود تفرضها الواجهة الخلفية (لا الواجهات):
+- الوكيل يتحكم بمحافظته حصراً (governorate_id في الطلبات/المزودين).
+- كل أقسام فهرس المزود مقيدة بنوع خدمته وبـ provider_id الخاص به.
+- تغيير حالات الطلب حسب الصلاحية: الزبون إلغاء فقط قبل بدء التنفيذ.
+
+--------------------------------------------------------
+3) هيكل المشروع
+--------------------------------------------------------
+  D:\1h1h
+  ├── server/           الواجهة الخلفية (Node.js + Express + SQLite) — المنفذ 4001
+  │   ├── src/
+  │   │   ├── index.js          نقطة الإقلاع (جدولة الصيانة والنسخ الاحتياطي كل ساعة)
+  │   │   ├── app.js            إعداد Express (رؤوس الأمان، CORS، CSRF، /uploads، المسارات)
+  │   │   ├── config.js         قراءة .env والإعدادات
+  │   │   ├── db/               اتصال SQLite + الترحيلات (migrate.js) + seed.js
+  │   │   ├── middleware/       المصادقة، الأمان، الأخطاء
+  │   │   ├── routes/           واجهات API المجمعة
+  │   │   ├── utils/            جملة أدوات (jwt، sessions، totp، csrf، lockout،
+  │   │   │                     fingerprint، uploads، rateLimit، maintenance، zip،...)
+  │   │   └── scripts/          restore.js (سكربت الاسترجاع الآلي)
+  │   ├── test/                 اختبارات node:test (257 اختباراً ناجحاً — المصدر الموحّد في AGENTS.md)
+  │   ├── data/                 قاعدة البيانات app.db + backups/ + uploads/ + vapid.json
+  │   ├── .env.example          قالب متغيرات البيئة
+  │   └── package.json
+  ├── shared/           code مشترك بين الواجهات: api.js، auth.jsx، ui.jsx،
+  │                     vite-plugin-csp.js، vite-plugin-sw.js
+  ├── admin-panel/      لوحة المسؤول (React + Vite) — 5175
+  ├── agent-panel/      لوحة الوكيل (React + Vite) — 5174
+  ├── provider-panel/   لوحات المزودين الخمس (React + Vite) — 5176
+  ├── customer-mobile/  واجهة الزبون نحو الجوال أولاً (React + Vite) — 5173
+  ├── deploy/           README النشر + nginx.conf.example + ecosystem.config.js
+  ├── docs/             التوثيق (system-analysis.md + ملفات txt هذه)
+  ├── e2e/              اختبارات Playwright لتطبيق الزبون
+  └── .github/workflows/ci.yml   CI (اختبار + بناء + E2E + أمان)
+
+--------------------------------------------------------
+4) المتطلبات
+--------------------------------------------------------
+- Node.js 23+ (يستخدم وحدة node:sqlite المدمجة — بدون تثبيت قاعدة بيانات خارجية)
+- npm (يأتي مع Node)
+- للبناء والتشغيل المحلي لا حاجة لأي قاعدة بيانات أو خدمات خارجية.
+- HTTPS إلزامي في الإنتاج للإشعارات Web Push ودفع إلكتروني مستقبلاً.
+
+--------------------------------------------------------
+5) التثبيت والتشغيل
+--------------------------------------------------------
+  npm run setup      تثبيت تبعيات جميع المجلدات (الأوامر في package.json الجذر)
+  npm run seed       تهيئة قاعدة البيانات + البيانات الأولية
+  npm run server     الخادم على http://localhost:4001
+  npm run admin      لوحة المسؤول    http://localhost:5175
+  npm run agent      لوحة الوكيل     http://localhost:5174
+  npm run provider   لوحة المزود     http://localhost:5176
+  npm run customer   واجهة الزبون    http://localhost:5173
+
+أوامر مفيدة منفصلة:
+  cd server && npm test          تشغيل اختبارات الخادم (257 اختباراً — المصدر الموحّد في AGENTS.md)
+  cd server && npm run migrate   تشغيل الترحيلات يدوياً
+  cd server && npm run restore   استرجاع نسخة احتياطية (انظر BACKUP_AND_RESTORE.txt)
+  cd server && npm start         تشغيل الخادم مباشرة
+
+--------------------------------------------------------
+6) متغيرات بيئة الخادم (server/.env — انسخ من .env.example)
+--------------------------------------------------------
+  NODE_ENV=production          بيئة التشغيل (الإنتاج يتطلب JWT_SECRET)
+  PORT=4001                    منفذ الخادم
+  JWT_SECRET=...               إلزامي في الإنتاج (openssl rand -hex 32)
+  JWT_EXPIRES_IN=7d            مدة صلاحية التوكن/الكوكي
+  DB_PATH=./data/app.db        مسار قاعدة البيانات (مطلق في الإنتاج)
+  BACKUP_DIR=./data/backups    دليل النسخ الاحتياطية (يُحتفظ بآخر 7)
+  APP_NAME=سوق الرافدين        اسم المنصة
+  TRUST_PROXY=0                فعّله (=1) خلف nginx فقط
+  CORS_ORIGINS=...             القائمة البيضاء للواجهات (مفصولة بفواصل)
+  RATE_LIMIT_MAX=10            حد الطلبات لكل IP في الدقيقة
+  RATE_LIMIT_WINDOW_MS=60000   نافذة الحد
+  WRITE_RATE_LIMIT_MAX=300     حد طلبات الكتابة لكل IP
+  LOCKOUT_MAX_FAILURES=5       عتبة قفل الحساب
+  LOCKOUT_WINDOW_MIN=15        نافذة عدّ الفشل
+  LOCKOUT_DURATION_MIN=15      مدة القفل
+  SESSION_COOKIE_NAME/CSRF_COOKIE_NAME   أسماء الكوكيز
+  COOKIE_SECURE=1              فرض Secure على الكوكي (تلقائي في الإنتاج)
+  VAPID_PUBLIC_KEY/PRIVATE_KEY/SUBJECT   إشعارات Web Push (اختياري)
+  VAPID_KEYS_PATH=./data/vapid.json       يُنشأ تلقائياً عند أول إقلاع
+  LOG_ROTATE_BYTES=10485760    تدوير السجلات
+  OFFSITE_BACKUP_CMD=...       دفع النسخ خارجياً (rclone/scp) — اختياري
+  BACKUP_BUNDLE_MAX_BYTES      سقف حجم حزمة النسخ الاحتياطي (افتراضي 1GB)
+
+--------------------------------------------------------
+7) الحسابات التجريبية (بعد seed)
+--------------------------------------------------------
+  الدور                البريد                             كلمة المرور
+  -------------------  ---------------------------------  -------------
+  مسؤول المنصة          admin@rafidain.iq                 Admin@123
+  وكيل بغداد            agent.baghdad@rafidain.iq         Agent@123
+  مزود (متجر)           provider.demo@rafidain.iq         Provider@123
+  مزود (مطعم)           restaurant.demo@rafidain.iq       Provider@123
+  مزود (فندق)           hotel.demo@rafidain.iq            Provider@123
+  مزود (طيران)          flights.demo@rafidain.iq          Provider@123
+  مزود (مكاتب سفر)      travel.demo@rafidain.iq           Provider@123
+  زبون تجريبي           customer.demo@rafidain.iq         Customer@123
+
+تحذير: غيّر كلمات المرور وJWT_SECRET فوراً في الإنتاج.
+
+--------------------------------------------------------
+8) واجهة برمجة التطبيقات (API على http://localhost:4001/api)
+--------------------------------------------------------
+المصادقة:
+  POST /api/auth/login               دخول (يحدد الدور، 2FA عند التفعيل)
+  POST /api/auth/2fa/verify          إكمال الدخول برمز المصادقة الثنائية
+  POST /api/auth/2fa/setup|enable|disable    إدارة 2FA الذاتية (أدوار الامتياز)
+  POST /api/auth/2fa/reset           مسؤول فقط: إلغاء 2FA لحساب آخر
+  GET  /api/auth/me                  بيانات المستخدم الحالي
+  POST /api/auth/change-password     تغيير كلمة المرور
+  POST /api/auth/logout|logout-all   إبطال الجلسة / كل الجلسات
+  POST /api/auth/register-customer   تسجيل زبون
+  POST /api/auth/verify-email        تفعيل البريد برمز
+  POST /api/auth/reset-password      admin/agent
+
+الإدارة (المسؤول):
+  /api/governorates                  المحافظات + رسوم الإجارة + toggle
+  /api/agents                        الوكلاء + renew-lease + lease-payments
+  /api/providers                     المزودون + toggle + verify
+  /api/customers                     الزبائن
+  /api/services                      الخدمات
+  /api/commissions                   نسب العمولات
+  /api/leases                        إجارات الوكلاء (approve/reject)
+  /api/dashboard                     إحصائيات المنصة
+  /api/activity                      سجل النشاط
+  /api/settings                      إعدادات المنصة
+  /api/wallets                       محافظ المزودين + credit
+  /api/recharges                     طلبات الشحن (approve/reject)
+
+الوكيل (محافظته فقط):
+  /api/agent/lease                   بيانات إجارته
+  /api/agent/lease/renew             طلب تجديد الإجارة
+  /api/agent/commissions             أرباح عمولاته
+  /api/agent/dashboard + /api/dashboard/agent   إحصائيات محافظته
+
+مزود الخدمة (نشاطه فقط):
+  /api/provider/dashboard|profile|wallet|bookings
+  /api/provider/products + /product-categories (تاجر)
+  /api/provider/menu-items + /menu-categories (مطعم)
+  /api/provider/rooms (فندق) / /api/provider/flights (طيران) / /api/provider/packages (سفر)
+  /api/recharges (طلب شحن مسبق ≥ 1000 دينار + لقطة إثبات)
+
+التصفح العام (بدون مصادقة):
+  /api/public/governorates|services|providers|providers/:id
+  /api/public/providers/:id/products|menu|rooms|flights|packages|categories
+  /api/public/payment-info          حسابات الشحن (للمزود المصادق فقط)
+
+الزبون:
+  /api/customer/dashboard|profile|rate/:providerId
+  /api/orders                       (إنشاء + عرض + تفاصيل + تغيير حالة حسب الدور)
+
+إشعارات Web Push:
+  /api/push/vapid-key | subscribe | unsubscribe
+
+ملاحظات عامة:
+- كل أقسام الفهرس مقيدة بنوع خدمة المزود و provider_id.
+- تغيير حالة الطلب يوزع العمولات تلقائياً (خصم من محفظة المزود عند القبول).
+
+--------------------------------------------------------
+9) قاعدة البيانات
+--------------------------------------------------------
+- SQLite عبر node:sqlite المدمجة (Node 23+). لا تثبيت منفصل.
+- الترحيلات: ملفات مرقمة في server/src/db/migrate.js، تُطبق تلقائياً عند الإقلاع.
+  آخر ترحيل: 024_security_hardening_auth (totp، بصمة الجلسة، جدول login_failures).
+- الجداول الرئيسية: users, agents, providers, services, governorates, orders,
+  products, menu_items, rooms, flights, packages, bookings, wallets,
+  recharge_requests, promotions, sessions, login_failures, notifications,
+  push_subscriptions, activity_log, settings, coupons, addresses, favorites.
+- البيانات الأولية: 18 محافظة، 5 خدمات، 8 حسابات تجريبية، منتجات/غرف/رحلات/باقات.
+- ملاحظة قابلة للتوسع: يمكن الترحيل لاحقاً إلى MySQL/PostgreSQL دون إعادة بناء.
+
+--------------------------------------------------------
+10) الصيانة التلقائية
+--------------------------------------------------------
+يعمل الخادم دورياً (كل ساعة في index.js) على:
+- checkpointAndBackup: نسخة احتياطية .db + حزمة .zip كاملة (انظر BACKUP_AND_RESTORE.txt)
+- pruneIdempotencyKeys: تنظيف مفاتيح إيقاع التكرار
+- endExpiredPromotions: إنهاء الإعلانات المنتهية + إشعارات التذكير
+- rotateLogs: تدوير السجلات حسب الحجم
+- pruneSessions: حذف الجلسات المنتهية
+
+--------------------------------------------------------
+11) الاختبارات
+--------------------------------------------------------
+- server/test: node:test (257 اختباراً ناجحاً — المصدر الموحّد في AGENTS.md) تشمل المصادقة، العمولات، الطلبات،
+  المحافظ/الشحن، التقييمات، الإشعارات، الصيانة/النسخ الاحتياطي، الأمان
+  (قفل الحساب، دورة 2FA، كوكي HttpOnly+CSRF، بصمة الجلسة، نافذة TOTP).
+- e2e: Playwright لواجهة الزبون.
+- CI: GitHub Actions — اختبارات + بناء الواجهات الأربع + E2E + أمان (audit/semgrep/gitleaks).
+
+--------------------------------------------------------
+12) النشر والإنتاج
+--------------------------------------------------------
+التفاصيل الكاملة في deploy/README.md:
+- nginx عكس وكيل + شهادات HTTPS (certbot) لكل واجهة على مجال فرعي.
+- تشغيل الخادم عبر PM2 (deploy/ecosystem.config.js).
+- TRUST_PROXY=1 خلف nginx، RATE_LIMIT_MAX=10.
+- قائمة فحص ما قبل الإطلاق (JWT_SECRET، شحن، بيانات أولية، vapid.json، سجلات).
+- خيارات الاستضافة السحابية البديلة (Netlify/Vercel + Render/Railway/Fly).
+
