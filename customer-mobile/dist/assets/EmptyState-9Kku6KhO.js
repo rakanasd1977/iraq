@@ -1,1 +1,0 @@
-import{j as e}from"./index-BnQichYd.js";function l({icon:t="🗂️",title:i="لا توجد عناصر",sub:s="",action:m=null}){return e.jsxs("div",{className:"empty",children:[e.jsx("div",{className:"empty__icon",children:t}),e.jsx("div",{className:"empty__title",children:i}),s&&e.jsx("div",{className:"empty__sub",children:s}),m]})}export{l as E};
