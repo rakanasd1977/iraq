@@ -1,0 +1,208 @@
+================================================================================
+      دليل تثبيت وإقلاع منصة "سوق الرافدين" على خادم الإنتاج (Linux)
+================================================================================
+آخر تحديث: بعد جولة تحقق نهائية + إصلاح معوقات النشر (انظر "استكشاف الأخطاء").
+
+--------------------------------------------------------------------------------
+٠) ملخص الجاهزية
+--------------------------------------------------------------------------------
+النظام جاهز للتثبيت والإقلاع بعد إغلاق الفجوات التالية:
+  ✓ tsx/typescript ضمن dependencies (لا يفشل npm start مع --omit=dev).
+  ✓ engines.node >= 22.5 مضبوط + ملف .nvmrc.
+  ✓ ملفات nginx الإنتاجية خالية من مسارات Windows + limit_req_zone مُعرّف.
+  ✓ قاعدة SQLite مُحصّنة (WAL + busy_timeout) مسبقاً.
+  ✓ نقطة فحص صحي /api/health تعمل (تم التحقق: 200).
+  ✓ إقلاع وضع الإنتاج تم اختباره فعلياً: 4 عمال cluster، استماع نظيف، صفر أخطاء.
+  ✓ اختبارات الخادم 343/343 ناجحة، و4 واجهات تُبنى بنجاح.
+
+--------------------------------------------------------------------------------
+١) متطلبات الخادم
+--------------------------------------------------------------------------------
+- نظام تشغيل: Linux (Ubuntu 22.04+ أو ما يعادلها).
+- Node.js: >= 22.5 (لاستخدام node:sqlite المدمج). يُنصح بـ 22.x LTS.
+- nginx: >= 1.20 (للوكيل العكسي + TLS).
+- PM2: مدير عمليات Node.
+- مساحة قرص: >= 2 جيجا للتطبيق + مساحة لقاعدة البيانات والصور المرفوعة.
+- صلاحيات: مستخدم غير جذر (مثلاً deploy)، وsudo لتثبيت الحزم وnginx.
+- نطاقات DNS: ربط 4 نطاقات/نواذج فرعية بنقاط الخادم (مثال):
+      rafidain.example          → تطبيق الزبون
+      agent.rafidain.example    → لوحة الوكيل
+      admin.rafidain.example    → لوحة المسؤول
+      provider.rafidain.example → لوحة المزود
+- شهادة TLS: Let's Encrypt (certbot) لكل النطاقات.
+
+--------------------------------------------------------------------------------
+٢) تجهيز الكود على الخادم
+--------------------------------------------------------------------------------
+# انتقل إلى مجلد التطبيقات
+sudo mkdir -p /var/www/rafidain
+cd /var/www/rafidain
+git clone <repository-url> .
+# أو ارفع مجلد المشروع كاملاً عبر rsync/scp
+
+# تأكد إصدار Node (يُفضّل nvm)
+node -v        # يجب أن يكون >= 22.5
+cat .nvmrc     # يحتوي 22
+
+--------------------------------------------------------------------------------
+٣) تثبيت تبعيات الخادم (مهم: tsx أصبح ضمن dependencies)
+--------------------------------------------------------------------------------
+cd /var/www/rafidain/server
+npm install            # يثبّت كل التبعيات (بما فيها tsx المطلوب لتشغيل الإنتاج)
+# للإنتاج الصارم استخدم: npm ci   (الآن package-lock.json متزامن مع package.json)
+
+--------------------------------------------------------------------------------
+٤) إعداد متغيرات البيئة (إلزامي للإنتاج)
+--------------------------------------------------------------------------------
+cp .env.example .env
+nano .env     # عدّل القيم التالية على الأقل:
+
+  # مطلوب — غيابهما يمنع الإقلاع (فشل مغلق)
+  JWT_SECRET=سلسلة-عشوائية-طويلة-32-بايت-على-الأقل
+  TOTP_ENC_KEY=مفتاح-تشفير-سداسي-أو-base64-بطول-32-بايت
+
+  NODE_ENV=production
+  PORT=4001
+  DB_PATH=/var/www/rafidain/server/data/app.db
+
+  CORS_ORIGINS=https://rafidain.example,https://admin.rafidain.example,https://agent.rafidain.example,https://provider.rafidain.example
+
+  TRUST_PROXY=1
+  COOKIE_SECURE=1
+  CLUSTER_WORKERS=0            # 0 = تلقائي بعدد الأنوية (مع PM2 instances=1)
+  SEED_ALLOW=0                 # لا تبذر تلقائياً في الإنتاج
+
+  # اختياري لكن موصى به
+  VAPID_SUBJECT=mailto:support@rafidain.iq
+  # مفاتيح VAPID تُولَّد تلقائياً إن تُركت فارغة
+
+# توليد سر عشوائي جيد لـ JWT_SECRET مثلاً:
+#   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+# وتوليد TOTP_ENC_KEY:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+--------------------------------------------------------------------------------
+٥) قاعدة البيانات (الهجرات تُشغَّل تلقائياً عند الإقلاع أيضاً)
+--------------------------------------------------------------------------------
+cd /var/www/rafidain/server
+npm run migrate        # ينشئ الجداول/يطبّق الهجرات (يحدث تلقائياً عند start أيضاً)
+
+# بذر بيانات أولية (مرة واحدة فقط — حسابات تجريبية):
+#   npm run seed
+# أو فعّل البذر الذاتي عند الإقلاع بتعيين SEED_ALLOW=1 (للتجربة فقط).
+
+--------------------------------------------------------------------------------
+٦) تشغيل الخادم (PM2)
+--------------------------------------------------------------------------------
+cd /var/www/rafidain
+pm2 start deploy/ecosystem.config.js --env production
+pm2 save
+pm2 startup            # ليت重启 التلقائي عند إقلاع الخادم (اتبع تعليماته)
+
+# التحقق من التشغيل الصحي:
+curl -s http://localhost:4001/api/health      # يجب أن يرد {"status":"ok",...}
+
+# سجلات الخادم:
+pm2 logs rafidain-server
+
+--------------------------------------------------------------------------------
+٧) بناء الواجهات الأربع ونشرها
+--------------------------------------------------------------------------------
+cd /var/www/rafidain
+npm run build          # يبني: customer-mobile, agent-panel, provider-panel, admin-panel
+# (البناء يشمل مصدر @rafidain/shared تلقائياً ضمن نفس المستودع)
+
+# ارفع مجلدات dist إلى مسارات nginx:
+sudo mkdir -p /var/www/rafidain/customer-mobile /var/www/rafidain/agent-panel \
+             /var/www/rafidain/admin-panel /var/www/rafidain/provider-panel
+rsync -a customer-mobile/dist/ /var/www/rafidain/customer-mobile/
+rsync -a agent-panel/dist/    /var/www/rafidain/agent-panel/
+rsync -a provider-panel/dist/ /var/www/rafidain/provider-panel/
+rsync -a admin-panel/dist/    /var/www/rafidain/admin-panel/
+
+--------------------------------------------------------------------------------
+٨) إعداد nginx (وكيل عكسي + HTTPS)
+--------------------------------------------------------------------------------
+# انقل ملفات الإعداد إلى مجلد خاص بها:
+sudo mkdir -p /etc/nginx/rafidain
+sudo cp deploy/nginx.headers.conf /etc/nginx/rafidain/
+sudo cp deploy/nginx.static.conf /etc/nginx/rafidain/
+sudo cp deploy/nginx.api.conf    /etc/nginx/rafidain/
+
+# عدّل nginx.conf.example واربطه:
+sudo cp deploy/nginx.conf.example /etc/nginx/sites-available/rafidain
+sudo ln -s /etc/nginx/sites-available/rafidain /etc/nginx/sites-enabled/rafidain
+# عدّل بداخله أسماء النطاقات والمسارات لتطابق خادمك (إن لزم).
+
+# شهادات Let's Encrypt:
+sudo apt-get install certbot python3-certbot-nginx -y
+sudo certbot --nginx -d rafidain.example -d www.rafidain.example \
+                   -d agent.rafidain.example -d admin.rafidain.example \
+                   -d provider.rafidain.example
+
+# تحقق الإعداد وأعد التحميل:
+sudo nginx -t
+sudo systemctl reload nginx
+
+--------------------------------------------------------------------------------
+٩) التخزين الدائم والنسخ الاحتياطي
+--------------------------------------------------------------------------------
+- تأكد أن المجلدات التالية على تخزين دائم وضمن النسخ الاحتياطي:
+      /var/www/rafidain/server/data/      (قاعدة SQLite + WAL)
+      /var/www/rafidain/server/uploads/   (الصور المرفوعة)
+- النظام يوفّر نسخاً احتياطياً عبر:
+      cd /var/www/rafidain/server && npm run restore
+  ويدعم الرفع الخارجي (GCS/offsite) عبر متغيرات البيئة في .env.
+- جدوِل نسخة دورية (cron) للملفين أعلاه.
+
+--------------------------------------------------------------------------------
+١٠) أوامر التشغيل اليومية
+--------------------------------------------------------------------------------
+pm2 status                 # حالة العمليات
+pm2 logs rafidain-server   # السجلات
+pm2 restart rafidain-server
+pm2 reload rafidain-server # إعادة تحميل بلا توقف
+sudo systemctl reload nginx
+
+--------------------------------------------------------------------------------
+١١) استكشاف الأخطاء والمعوقات التي أُصلحت قبل التثبيت
+--------------------------------------------------------------------------------
+• [أُصلح] npm start كان يفشل مع --omit=dev لأن tsx كان devDependency.
+    الحل: نُقل tsx وtypescript إلى dependencies، وتمت مزامنة package-lock.json
+    (npm ci يعمل الآن).
+
+• [أُصلح] عدم تثبيت إصدار Node. الحل: أُضيف engines.node >=22.5 في
+    server/package.json والجذر، وأُنشئ .nvmrc بقيمة 22.
+
+• [أُصلح] ملفات nginx الإنتاجية احتوت مسارات Windows ثابتة
+    (D:/1h1h/deploy/...). الحل: حُوّلت إلى تضمين نسبي `include nginx.headers.conf;`
+    (يُحلّ نسبةً لمجلد الملف ⇒ يعمل على Linux وWindows).
+    ملاحظة: ملف deploy/nginx.local.conf يبقى بمسارات Windows عمداً للتطوير المحلي.
+
+• [أُصلح] نقص limit_req_zone في nginx.conf.example (كان يُعطّل إقلاع nginx).
+    الحل: أُضيفت المنطقة في أعلى الملف.
+
+• [موجود أصلاً] قاعدة SQLite مُحصّنة عبر WAL + busy_timeout + synchronous=NORMAL
+    في server/src/db/worker.ts — لا إجراء مطلوب.
+
+• [موجود أصلاً] نقطة /api/health جاهزة للفحص الصحي أمام موازن الحمل.
+
+أعراض شائعة وعلاجها:
+  - خطأ EADDRINUSE عند الإقلاع: منفذ 4001 مشغول بعملية سابقة ⇒ اقتلها ثم أعد التشغيل.
+  - رد 401 على مسارات المحمية: تأكد إرسال كوكي الجلسة/CSRF وأن NODE_ENV=production
+    مع COOKIE_SECURE=1 وHTTPS مُفعّل.
+  - صور وثائق الهوية تظهر "404": سلوك مقصود (ملفات حسّاسة لا تُقدَّم علناً).
+
+--------------------------------------------------------------------------------
+١٢) ملاحظات أمنية وتوسّع
+--------------------------------------------------------------------------------
+- لا تلتزم ملف .env أبداً (مُتجاهَل في .gitignore).
+- فعّل جدار حماية (ufw) واسمح بـ 22/80/443 فقط.
+- للحِمل الثقيل الأفقي: يُنصح بالانتقال من SQLite إلى PostgreSQL.
+- رؤوس الأمان (HSTS, CSP, X-Frame-Options…) مضبوطة في nginx.headers.conf؛ راجع
+  CSP (script-src 'self') قبل الإنتاج إن كانت الواجهات تستخدم سكربتات inline.
+- لا يوجد خط نشر تلقائي (CD) حالياً؛ النشر يدوي كما في هذا الدليل.
+
+================================================================================
+نهاية الدليل
+================================================================================
