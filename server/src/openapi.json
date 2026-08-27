@@ -1,0 +1,348 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "سوق الرافدين — Rafidain Market API",
+    "version": "1.0.0",
+    "description": "عقد API لمنصة سوق الرافدين (وساطة متعددة الخدمات: متاجر/مطاعم/فنادق/طيران/مكاتب سفر). مواصفة أساسية (v1) تغطّي المسارات الأساسية بمخططات حقيقية، قابلة للتوسعة لجميع ملفات المسارات الـ29. الأدوار: admin / agent / provider / customer. العملة: الدينار العراقي (IQD).",
+    "contact": { "name": "فريق الرافدين", "email": "dev@rafidain.iq" }
+  },
+  "servers": [
+    { "url": "http://localhost:4001/api", "description": "تطوير محلي" },
+    { "url": "https://api.rafidain.iq/api", "description": "إنتاج" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" },
+      "cookieAuth": { "type": "apiKey", "in": "cookie", "name": "rafidain_session" }
+    },
+    "schemas": {
+      "Error": { "type": "object", "properties": { "message": { "type": "string" }, "code": { "type": "string" } } },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "role": { "type": "string", "enum": ["admin", "agent", "provider", "customer"] },
+          "name_ar": { "type": "string" },
+          "email": { "type": "string" },
+          "phone": { "type": "string" },
+          "governorate_id": { "type": "integer", "nullable": true },
+          "is_active": { "type": "boolean" },
+          "is_verified": { "type": "boolean" }
+        }
+      },
+      "ProviderSummary": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name_ar": { "type": "string" },
+          "service_slug": { "type": "string" },
+          "governorate_id": { "type": "integer" },
+          "rating": { "type": "number" },
+          "rating_count": { "type": "integer" },
+          "is_verified": { "type": "boolean" },
+          "is_active": { "type": "boolean" },
+          "logo": { "type": "string", "nullable": true }
+        }
+      },
+      "Product": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "provider_id": { "type": "integer" },
+          "title_ar": { "type": "string" },
+          "price": { "type": "number" },
+          "discount_percent": { "type": "number" },
+          "stock": { "type": "integer" },
+          "images": { "type": "array", "items": { "type": "string" } },
+          "is_active": { "type": "boolean" }
+        }
+      },
+      "OrderItem": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "enum": ["product", "menu_item", "room", "flight", "package"] },
+          "item_id": { "type": "integer" },
+          "title_ar": { "type": "string" },
+          "quantity": { "type": "integer" },
+          "unit_price": { "type": "number" }
+        }
+      },
+      "Order": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "order_number": { "type": "string" },
+          "customer_id": { "type": "integer" },
+          "provider_id": { "type": "integer" },
+          "status": { "type": "string", "enum": ["pending", "confirmed", "in_progress", "completed", "cancelled"] },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/OrderItem" } },
+          "total_amount": { "type": "number" },
+          "commission_amount": { "type": "number" },
+          "platform_amount": { "type": "number" },
+          "agent_amount": { "type": "number" },
+          "provider_amount": { "type": "number" },
+          "coupon_code": { "type": "string", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Wallet": {
+        "type": "object",
+        "properties": {
+          "provider_id": { "type": "integer" },
+          "balance": { "type": "number" },
+          "total_recharged": { "type": "number" },
+          "total_spent": { "type": "number" }
+        }
+      },
+      "RechargeRequest": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "provider_id": { "type": "integer" },
+          "amount": { "type": "number" },
+          "payment_method": { "type": "string", "enum": ["zain_cash", "asia_pay", "first_iraqi", "al_ahli"] },
+          "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+          "reference": { "type": "string" },
+          "reject_reason": { "type": "string", "nullable": true }
+        }
+      },
+      "Notification": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "type": { "type": "string" },
+          "title": { "type": "string" },
+          "body": { "type": "string" },
+          "url": { "type": "string", "nullable": true },
+          "is_read": { "type": "boolean" }
+        }
+      },
+      "PaginatedOrders": {
+        "type": "object",
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Order" } },
+          "meta": { "type": "object", "properties": { "total": { "type": "integer" }, "page": { "type": "integer" }, "limit": { "type": "integer" }, "pages": { "type": "integer" } } }
+        }
+      }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "tags": [
+    { "name": "auth", "description": "المصادقة وتسجيل الزبون" },
+    { "name": "public", "description": "الكتالوج العام (بلا مصادقة)" },
+    { "name": "orders", "description": "الطلبات (وساطة)" },
+    { "name": "customer", "description": "الزبون المصادق" },
+    { "name": "provider", "description": "المزوّد المصادق" },
+    { "name": "wallets", "description": "محافظ المزوّد والشحن" },
+    { "name": "notifications", "description": "الإشعارات الداخلية" },
+    { "name": "push", "description": "إشعارات Web Push" },
+    { "name": "system", "description": "المسؤول/النظام" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "فحص صحة الخادم",
+        "tags": ["system"],
+        "security": [],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "type": "string" } } } } } } }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "summary": "تسجيل الدخول (أي دور)",
+        "tags": ["auth"],
+        "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["email", "password"], "properties": { "email": { "type": "string" }, "password": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "نجاح", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } } }, "401": { "description": "بيانات خاطئة", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } } }
+      }
+    },
+    "/auth/register-customer": {
+      "post": {
+        "summary": "تسجيل زبون جديد",
+        "tags": ["auth"],
+        "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name_ar", "email", "phone", "password", "governorate_id"], "properties": { "name_ar": { "type": "string" }, "email": { "type": "string" }, "phone": { "type": "string" }, "password": { "type": "string", "minLength": 6 }, "governorate_id": { "type": "integer" } } } } } },
+        "responses": { "201": { "description": "أنشئ" }, "422": { "description": "حقل ناقص/بريد مكرر", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } } }
+      }
+    },
+    "/auth/verify-email": {
+      "post": {
+        "summary": "تأكيد البريد عبر رمز",
+        "tags": ["auth"],
+        "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["email", "code"], "properties": { "email": { "type": "string" }, "code": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "تم التأكيد" }, "400": { "description": "رمز غير صالح", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } } }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "summary": "الملف الشخصي للمصادَق",
+        "tags": ["auth"],
+        "responses": { "200": { "description": "الملف", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } } }, "401": { "description": "غير مصادَق", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } } }
+      }
+    },
+    "/auth/change-password": {
+      "post": {
+        "summary": "تغيير كلمة المرور",
+        "tags": ["auth"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["current_password", "new_password"], "properties": { "current_password": { "type": "string" }, "new_password": { "type": "string", "minLength": 6 } } } } } },
+        "responses": { "200": { "description": "تم التغيير" }, "401": { "description": "خطأ بالحالي", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } } }
+      }
+    },
+    "/auth/logout": { "post": { "summary": "تسجيل الخروج (الجلسة الحالية)", "tags": ["auth"], "responses": { "200": { "description": "تم" } } } },
+    "/auth/logout-all": { "post": { "summary": "تسجيل الخروج من كل الجلسات", "tags": ["auth"], "responses": { "200": { "description": "تم" } } } },
+    "/public/governorates": {
+      "get": {
+        "summary": "قائمة المحافظات (18)",
+        "tags": ["public"],
+        "security": [],
+        "responses": { "200": { "description": "قائمة", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "integer" }, "name_ar": { "type": "string" } } } } } } } }
+      }
+    },
+    "/public/services": {
+      "get": {
+        "summary": "قائمة الخدمات (5)",
+        "tags": ["public"],
+        "security": [],
+        "responses": { "200": { "description": "قائمة", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object", "properties": { "slug": { "type": "string" }, "name_ar": { "type": "string" } } } } } } } }
+      }
+    },
+    "/public/providers": {
+      "get": {
+        "summary": "بحث/تصفّح المزوّدين",
+        "tags": ["public"],
+        "security": [],
+        "parameters": [
+          { "name": "service", "in": "query", "schema": { "type": "string" } },
+          { "name": "governorate_id", "in": "query", "schema": { "type": "integer" } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } }
+        ],
+        "responses": { "200": { "description": "قائمة", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/ProviderSummary" } } } } } }
+      }
+    },
+    "/public/providers/{id}": {
+      "get": {
+        "summary": "تفاصيل مزوّد",
+        "tags": ["public"],
+        "security": [],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "المزوّد", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProviderSummary" } } } }, "404": { "description": "غير موجود", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } } }
+      }
+    },
+    "/public/providers/{id}/products": {
+      "get": {
+        "summary": "منتجات/قائمة مزوّد",
+        "tags": ["public"],
+        "security": [],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "قائمة", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Product" } } } } } }
+      }
+    },
+    "/public/providers/{id}/reviews": {
+      "get": {
+        "summary": "تقييمات مزوّد",
+        "tags": ["public"],
+        "security": [],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "قائمة تقييمات" } }
+      }
+    },
+    "/public/items/{kind}/{itemId}/reviews": {
+      "get": {
+        "summary": "تقييمات عنصر (product/menu_item/room/flight/package)",
+        "tags": ["public"],
+        "security": [],
+        "parameters": [
+          { "name": "kind", "in": "path", "required": true, "schema": { "type": "string", "enum": ["product", "menu_item", "room", "flight", "package"] } },
+          { "name": "itemId", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "قائمة تقييمات" } }
+      }
+    },
+    "/orders": {
+      "get": {
+        "summary": "قائمة الطلبات (مُرشَّحة حسب الدور)",
+        "tags": ["orders"],
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } }
+        ],
+        "responses": { "200": { "description": "قائمة", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaginatedOrders" } } } } }
+      },
+      "post": {
+        "summary": "إنشاء طلب وساطة",
+        "tags": ["orders"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["provider_id", "items"], "properties": { "provider_id": { "type": "integer" }, "items": { "type": "array", "items": { "$ref": "#/components/schemas/OrderItem" } }, "coupon_code": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "أنشئ", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Order" } } } }, "400": { "description": "رصيد/بيانات غير صالحة", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } } }
+      }
+    },
+    "/orders/{id}": {
+      "get": {
+        "summary": "تفاصيل طلب",
+        "tags": ["orders"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "الطلب", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Order" } } } }, "404": { "description": "غير موجود", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } } }
+      }
+    },
+    "/orders/{id}/status": {
+      "put": {
+        "summary": "تغيير حالة الطلب (صلاحيات حسب الدور)",
+        "tags": ["orders"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["status"], "properties": { "status": { "type": "string", "enum": ["pending", "confirmed", "in_progress", "completed", "cancelled"] } } } } } },
+        "responses": { "200": { "description": "محدَّث", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Order" } } } }, "403": { "description": "صلاحية", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } } }
+      }
+    },
+    "/customer/favorites": {
+      "get": { "summary": "عناصر الزبون المفضّلة", "tags": ["customer"], "responses": { "200": { "description": "قائمة" } } },
+      "post": { "summary": "إضافة للمفضّلة", "tags": ["customer"], "responses": { "201": { "description": "أضيف" } } }
+    },
+    "/customer/follows": {
+      "get": { "summary": "مزوّدو الزبون المتابَعون", "tags": ["customer"], "responses": { "200": { "description": "قائمة" } } }
+    },
+    "/customer/loyalty": {
+      "get": { "summary": "نقاط الولاء والإحالات", "tags": ["customer"], "responses": { "200": { "description": "الرصيد" } } }
+    },
+    "/customer/coupons": {
+      "get": { "summary": "قسائم الزبون", "tags": ["customer"], "responses": { "200": { "description": "قائمة" } } }
+    },
+    "/provider/products": {
+      "get": { "summary": "منتجات المزوّد", "tags": ["provider"], "responses": { "200": { "description": "قائمة", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Product" } } } } } } },
+      "post": { "summary": "إضافة منتج", "tags": ["provider"], "responses": { "201": { "description": "أضيف" } } }
+    },
+    "/provider/products/{id}": {
+      "put": { "summary": "تعديل منتج", "tags": ["provider"], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "محدَّث" } } },
+      "delete": { "summary": "حذف منتج", "tags": ["provider"], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "حُذف" } } }
+    },
+    "/wallets/me": {
+      "get": { "summary": "رصيد محفظة المزوّد", "tags": ["wallets"], "responses": { "200": { "description": "الرصيد", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Wallet" } } } } } }
+    },
+    "/recharges": {
+      "get": { "summary": "طلبات شحن المزوّد", "tags": ["wallets"], "responses": { "200": { "description": "قائمة", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/RechargeRequest" } } } } } } },
+      "post": { "summary": "طلب شحن محفظة", "tags": ["wallets"], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RechargeRequest" } } } }, "responses": { "201": { "description": "أُنشئ" } } }
+    },
+    "/recharges/{id}/review": {
+      "post": { "summary": "مسؤول: اعتماد/رفض شحن", "tags": ["system"], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "تمت المراجعة" } } }
+    },
+    "/notifications": {
+      "get": { "summary": "إشعارات المصادَق", "tags": ["notifications"], "responses": { "200": { "description": "قائمة", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Notification" } } } } } } },
+      "post": { "summary": "تعليم الكل كمقروء", "tags": ["notifications"], "responses": { "200": { "description": "تم" } } }
+    },
+    "/notifications/{id}/read": {
+      "post": { "summary": "تعليم إشعار كمقروء", "tags": ["notifications"], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }], "responses": { "200": { "description": "تم" } } }
+    },
+    "/push/register": {
+      "post": { "summary": "تسجيل اشتراك Web Push", "tags": ["push"], "responses": { "201": { "description": "سُجّل" } } }
+    },
+    "/admin/dashboard": {
+      "get": { "summary": "مؤشرات المسؤول", "tags": ["system"], "responses": { "200": { "description": "مقاييس" } } }
+    },
+    "/admin/settings": {
+      "get": { "summary": "إعدادات النظام", "tags": ["system"], "responses": { "200": { "description": "الإعدادات" } } },
+      "put": { "summary": "تحديث إعدادات", "tags": ["system"], "responses": { "200": { "description": "محدَّث" } } }
+    }
+  }
+}
